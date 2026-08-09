@@ -1,0 +1,27 @@
+[
+  {
+    "title": "What chunk size should I use?",
+    "body": "Start at 500 tokens with 75 tokens of overlap, then measure. Corpora made of short reference entries often do better at 250-300 tokens, while narrative documentation frequently benefits from 700-900.",
+    "tags": ["sizing", "tuning"]
+  },
+  {
+    "title": "Why do my chunks mix unrelated topics?",
+    "body": "A fixed-size splitter has no idea where a section ends. Use the structural or recursive strategy so that chunk boundaries follow the document outline instead of a character counter.",
+    "tags": ["strategy", "quality"]
+  },
+  {
+    "title": "Should I include the heading in the chunk text?",
+    "body": "Yes. A chunk retrieved in isolation should say what it is about. RAG ChunkForge repeats the section heading in every chunk of that section and can also add a context prefix with the full heading path.",
+    "tags": ["context", "metadata"]
+  },
+  {
+    "title": "How much overlap is too much?",
+    "body": "Above roughly 25 percent of the target size you are mostly paying to store and embed the same sentences twice. Overlap at sentence boundaries rather than by raw character count.",
+    "tags": ["overlap", "cost"]
+  },
+  {
+    "title": "Do I need embeddings to use this tool?",
+    "body": "No. The chunking pipeline is complete without them. Embeddings are an optional final stage behind a provider interface so you can plug in sentence-transformers, Ollama or any OpenAI-compatible endpoint.",
+    "tags": ["embeddings"]
+  }
+]

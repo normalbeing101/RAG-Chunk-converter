@@ -1,0 +1,64 @@
+name: Bug report
+description: Report incorrect behaviour or bad chunking output
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. If the issue is about **chunk quality**, a small
+        sample document is far more useful than a description.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what did you get instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: The exact command or Python snippet.
+      render: bash
+      placeholder: ragforge process docs/manual.md --strategy recursive --chunk-size 500
+    validations:
+      required: true
+
+  - type: textarea
+    id: input
+    attributes:
+      label: Sample input
+      description: A minimal document that triggers the problem.
+      render: markdown
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Actual output
+      description: The chunk(s) produced. Run with `--debug` if there is an error.
+      render: text
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration
+      description: Your ragforge.yaml, if any.
+      render: yaml
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `ragforge --version`
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: OS and Python version
+      placeholder: "Ubuntu 24.04, Python 3.12.3"
+    validations:
+      required: true

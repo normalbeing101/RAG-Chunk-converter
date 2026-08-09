@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RAG ChunkForge</title>
+<link rel="stylesheet" href="/static/app.css" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#9639;</text></svg>" />
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">&#9639;</span>
+    <div>
+      <h1>RAG ChunkForge</h1>
+      <p>Intelligent document chunking for retrieval</p>
+    </div>
+  </div>
+  <div class="topbar-actions">
+    <span id="version" class="muted"></span>
+    <a href="/docs" target="_blank" rel="noopener">API docs</a>
+  </div>
+</header>
+
+<main class="layout">
+  <!-- ------------------------------------------------ sidebar -->
+  <aside class="panel sidebar">
+    <h2>1. Input</h2>
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-input="file" role="tab">File</button>
+      <button class="tab" data-input="text" role="tab">Text</button>
+    </div>
+
+    <div id="input-file" class="input-pane">
+      <label class="dropzone" id="dropzone">
+        <input type="file" id="file" hidden />
+        <span id="filename">Drop a document or click to browse</span>
+        <small class="muted" id="accepted"></small>
+      </label>
+    </div>
+
+    <div id="input-text" class="input-pane hidden">
+      <textarea id="text" rows="10" placeholder="# Paste markdown or plain text&#10;&#10;Content..."></textarea>
+      <input type="text" id="text-title" placeholder="Document title" value="Pasted document" />
+    </div>
+
+    <h2>2. Chunking</h2>
+    <label>Strategy
+      <select id="strategy">
+        <option value="recursive" selected>recursive</option>
+        <option value="structural">structural</option>
+        <option value="sentence">sentence</option>
+        <option value="code">code</option>
+        <option value="auto">auto</option>
+      </select>
+    </label>
+
+    <label>Unit
+      <select id="unit">
+        <option value="tokens" selected>tokens</option>
+        <option value="words">words</option>
+        <option value="characters">characters</option>
+      </select>
+    </label>
+
+    <label>Target size <output id="target-size-out">500</output>
+      <input type="range" id="target-size" min="50" max="2000" step="10" value="500" />
+    </label>
+
+    <label>Overlap <output id="overlap-out">75</output>
+      <input type="range" id="overlap" min="0" max="400" step="5" value="75" />
+    </label>
+
+    <div class="row">
+      <label>Min <input type="number" id="min-size" value="100" min="0" /></label>
+      <label>Max <input type="number" id="max-size" value="800" min="1" /></label>
+    </div>
+
+    <fieldset class="toggles">
+      <legend>Options</legend>
+      <label class="check"><input type="checkbox" id="clean" checked /> Clean text</label>
+      <label class="check"><input type="checkbox" id="dedup" checked /> Deduplicate</label>
+      <label class="check"><input type="checkbox" id="prefix" checked /> Context prefix</label>
+    </fieldset>
+
+    <button id="run" class="primary">Process document</button>
+    <p id="status" class="status"></p>
+  </aside>
+
+  <!-- ------------------------------------------------ content -->
+  <section class="content">
+    <div id="empty" class="panel empty">
+      <h2>No dataset yet</h2>
+      <p class="muted">Upload a document or paste text, then press <strong>Process document</strong>.</p>
+      <ul class="muted hints">
+        <li>Chunks never cross section boundaries.</li>
+        <li>Code blocks and tables stay intact when they fit.</li>
+        <li>Overlap is applied at sentence or paragraph boundaries.</li>
+      </ul>
+    </div>
+
+    <div id="results" class="hidden">
+      <div class="panel stats">
+        <div class="stat"><span id="s-documents">0</span><label>Documents</label></div>
+        <div class="stat"><span id="s-tokens">0</span><label>Original tokens</label></div>
+        <div class="stat"><span id="s-chunks">0</span><label>Chunks</label></div>
+        <div class="stat"><span id="s-avg">0</span><label>Average size</label></div>
+        <div class="stat"><span id="s-median">0</span><label>Median size</label></div>
+        <div class="stat"><span id="s-dupes">0</span><label>Duplicates</label></div>
+        <div class="stat warn"><span id="s-warnings">0</span><label>Warnings</label></div>
+        <div class="stat"><span id="s-quality">0</span><label>Avg quality</label></div>
+      </div>
+
+      <nav class="tabs main-tabs" role="tablist">
+        <button class="tab active" data-view="chunks" role="tab">Chunks</button>
+        <button class="tab" data-view="preview" role="tab">Boundaries</button>
+        <button class="tab" data-view="charts" role="tab">Distribution</button>
+        <button class="tab" data-view="export" role="tab">Export</button>
+      </nav>
+
+      <!-- chunks -->
+      <div id="view-chunks" class="view">
+        <div class="panel toolbar">
+          <input type="search" id="search" placeholder="Search chunk content..." />
+          <select id="filter-type"><option value="">All types</option></select>
+          <label class="check"><input type="checkbox" id="filter-flagged" /> Flagged only</label>
+          <span class="muted" id="chunk-count"></span>
+        </div>
+        <div class="split">
+          <div class="panel list" id="chunk-list"></div>
+          <div class="panel detail" id="chunk-detail">
+            <p class="muted">Select a chunk to inspect its metadata.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- preview -->
+      <div id="view-preview" class="view hidden">
+        <div class="panel">
+          <p class="muted legend">
+            Alternating shades mark chunk boundaries in the original document.
+            Hover a segment to see its id and section.
+          </p>
+          <div id="preview" class="preview"></div>
+        </div>
+      </div>
+
+      <!-- charts -->
+      <div id="view-charts" class="view hidden">
+        <div class="panel">
+          <h3>Chunk size distribution</h3>
+          <div id="histogram" class="chart"></div>
+        </div>
+        <div class="grid-2">
+          <div class="panel"><h3>Chunks by document</h3><div id="by-document" class="chart"></div></div>
+          <div class="panel"><h3>Chunks by content type</h3><div id="by-type" class="chart"></div></div>
+        </div>
+        <div class="panel"><h3>Chunks by section</h3><div id="by-section" class="chart"></div></div>
+        <div class="panel"><h3>Quality flags</h3><div id="by-flag" class="chart"></div></div>
+      </div>
+
+      <!-- export -->
+      <div id="view-export" class="view hidden">
+        <div class="panel">
+          <h3>Export dataset</h3>
+          <p class="muted">Download the generated chunks in your preferred format.</p>
+          <div class="export-buttons">
+            <button data-export="jsonl">chunks.jsonl</button>
+            <button data-export="json">chunks.json</button>
+            <button data-export="csv">chunks.csv</button>
+            <button data-export="markdown">chunks.md</button>
+          </div>
+          <h3>Validation</h3>
+          <button id="validate" class="secondary">Run validation</button>
+          <pre id="validation" class="code-out"></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

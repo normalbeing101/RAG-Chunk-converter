@@ -1,0 +1,52 @@
+# Example configuration for the documents in examples/input.
+#
+#   ragforge process examples/input -c examples/ragforge.yaml
+#
+project:
+  name: chunkforge-examples
+  description: Sample corpus covering markdown, text, html, json and csv.
+
+chunking:
+  strategy: recursive
+  target_size: 300
+  min_size: 80
+  max_size: 500
+  overlap: 40
+  unit: tokens
+  overlap_unit: same
+  tokenizer: heuristic
+  keep_code_blocks_intact: true
+  keep_tables_intact: true
+  merge_small_chunks: true
+
+cleaning:
+  enabled: true
+  normalize_unicode: true
+  normalize_whitespace: true
+  collapse_blank_lines: true
+  remove_navigation: true
+  preserve_code_blocks: true
+
+deduplication:
+  enabled: true
+  similarity_threshold: 0.92
+  method: minhash
+  action: flag
+
+context:
+  include_heading_path: true
+  include_source: true
+  include_title: true
+  include_context_prefix: true
+  include_neighbors: true
+  include_parents: true
+
+quality:
+  enabled: true
+  drop_low_quality: false
+
+output:
+  format: jsonl
+  path: examples/output
+  filename: chunks
+  write_statistics: true

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Widget API Reference</title>
+  <meta name="description" content="HTTP reference for the Widget service." />
+</head>
+<body>
+  <nav>Home | Guides | API | Support</nav>
+
+  <main>
+    <h1>Widget API Reference</h1>
+    <p>The Widget API is a JSON over HTTP interface. Every endpoint requires a bearer token.</p>
+
+    <h2>Authentication</h2>
+    <p>Send the token in the <code>Authorization</code> header. Tokens expire after 24 hours.</p>
+    <pre><code class="language-bash">curl -H "Authorization: Bearer $TOKEN" https://api.example.com/v1/widgets</code></pre>
+
+    <h2>Endpoints</h2>
+
+    <h3>List widgets</h3>
+    <p>Returns a paginated list of widgets belonging to the authenticated account.</p>
+    <ul>
+      <li><strong>limit</strong> - page size, 1 to 100, default 20</li>
+      <li><strong>cursor</strong> - opaque pagination cursor</li>
+      <li><strong>status</strong> - filter by <em>active</em>, <em>paused</em> or <em>archived</em></li>
+    </ul>
+
+    <h3>Create a widget</h3>
+    <p>Creates a widget and returns it with a generated identifier.</p>
+    <pre><code class="language-json">{
+  "name": "Analytics widget",
+  "status": "active",
+  "refresh_interval": 60
+}</code></pre>
+
+    <h2>Status codes</h2>
+    <table>
+      <tr><th>Code</th><th>Meaning</th><th>Retry</th></tr>
+      <tr><td>200</td><td>Success</td><td>No</td></tr>
+      <tr><td>401</td><td>Invalid or expired token</td><td>After refresh</td></tr>
+      <tr><td>429</td><td>Rate limited</td><td>Yes, with backoff</td></tr>
+      <tr><td>500</td><td>Server error</td><td>Yes</td></tr>
+    </table>
+
+    <blockquote>Rate limits are applied per account, not per token.</blockquote>
+  </main>
+
+  <footer>Copyright 2026 Example Inc. | Privacy | Terms</footer>
+  <script>trackPageView();</script>
+</body>
+</html>

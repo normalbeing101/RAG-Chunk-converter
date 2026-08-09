@@ -1,0 +1,27 @@
+Notes on retrieval quality
+
+Retrieval augmented generation combines a retriever with a generator. The
+retriever selects relevant passages from a corpus, and the generator conditions
+its answer on those passages. The quality ceiling of the whole system is
+therefore set by the retriever, not by the model.
+
+Chunk size is the parameter people tune first and understand last. Small chunks
+give precise matches but lose the surrounding argument. Large chunks preserve
+context but dilute the embedding, because a single vector has to represent
+several ideas at once.
+
+A useful heuristic: a chunk should answer one question completely. If you can
+imagine two unrelated questions that both retrieve the same chunk, it is
+probably too large. If answering a question requires stitching three chunks
+together, they are probably too small.
+
+Overlap exists to protect against boundary effects. A fact stated at the very
+end of one chunk and referenced at the start of the next is otherwise
+unreachable. Overlapping at sentence boundaries costs little and recovers most
+of those cases. Overlapping by a fixed character count mostly duplicates
+fragments of words.
+
+Metadata is underrated. Storing the heading path alongside the text lets a
+retriever disambiguate between the "Installation" section of three different
+products. It also allows filtered search, which is usually cheaper and more
+accurate than making the embedding model work harder.

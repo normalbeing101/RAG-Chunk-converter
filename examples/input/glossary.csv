@@ -1,0 +1,11 @@
+term,definition,category
+Chunk,A contiguous piece of a document stored and retrieved as a single unit,core
+Chunk overlap,Text repeated between consecutive chunks to protect against boundary effects,core
+Heading path,The ordered list of ancestor headings that locate a chunk inside a document,metadata
+Recursive splitting,Splitting text by progressively finer separators until pieces fit the target size,strategy
+Structural chunking,Chunking that follows document sections and never crosses their boundaries,strategy
+MinHash,A technique for estimating set similarity from fixed-size signatures,deduplication
+LSH,Locality sensitive hashing; groups similar signatures into shared buckets,deduplication
+Token,The unit an LLM actually reads; roughly four characters of English text,measurement
+Context prefix,A short header prepended to a chunk describing its document and section,context
+Near duplicate,A chunk whose similarity to another exceeds the configured threshold,deduplication
