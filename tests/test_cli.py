@@ -313,7 +313,8 @@ def test_init_creates_config(tmp_path):
     result = run("init", str(target))
     assert result.exit_code == 0
     text = target.read_text(encoding="utf-8")
-    assert "strategy: recursive" in text
+    assert "strategy: semantic" in text
+    assert "separate_retrieval_metadata" in text
 
     import yaml
 

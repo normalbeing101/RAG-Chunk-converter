@@ -39,6 +39,7 @@ def _render(chunk: Chunk) -> str:
         f"- **Size:** {meta.size} {meta.unit} "
         f"({meta.char_count} chars, {meta.word_count} words, {meta.token_count} tokens)"
     )
+    lines.append(f"- **Role:** {meta.semantic_role}")
     lines.append(
         f"- **Type:** {meta.content_type}" + (f" ({meta.language})" if meta.language else "")
     )
@@ -47,7 +48,16 @@ def _render(chunk: Chunk) -> str:
         lines.append(f"- **Neighbors:** {meta.previous_chunk or '-'} / {meta.next_chunk or '-'}")
     if chunk.quality:
         flags = ", ".join(f.value for f in chunk.quality.flags) or "none"
-        lines.append(f"- **Quality:** {chunk.quality.quality_score:.2f} (flags: {flags})")
+        lines.append(
+            f"- **Quality:** {chunk.quality.quality_score:.2f} "
+            f"(retrieval {chunk.quality.retrieval_score:.2f}, flags: {flags})"
+        )
+    for name in ("tags", "keywords", "aliases", "entities", "related_concepts", "questions"):
+        values = getattr(chunk.retrieval, name)
+        if values:
+            preview = ", ".join(values[:8])
+            more = f" _(+{len(values) - 8} more)_" if len(values) > 8 else ""
+            lines.append(f"- **{name.replace('_', ' ').title()}:** {preview}{more}")
     if meta.duplicate_of:
         lines.append(f"- **Duplicate of:** `{meta.duplicate_of}` ({meta.similarity})")
     lines.append("")

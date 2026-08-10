@@ -27,6 +27,7 @@ from ragforge.models.result import DocumentReport, ForgeResult, Statistics
 from ragforge.parsers.base import get_parser, supported_extensions
 from ragforge.preprocessing.cleaner import TextCleaner
 from ragforge.preprocessing.structure import StructureAnalyzer
+from ragforge.quality.coverage import CoverageAuditor, CoverageReport
 from ragforge.quality.scorer import QualityScorer
 from ragforge.utils.progress import NullProgress, ProgressReporter
 
@@ -59,10 +60,12 @@ class Pipeline:
         self.progress = progress or NullProgress()
         self.cleaner = TextCleaner(self.config.cleaning)
         self.analyzer = StructureAnalyzer()
-        self.engine = ChunkingEngine(self.config.chunking)
+        self.engine = ChunkingEngine(self.config.chunking, self.config.semantics)
         self.enricher = ContextEnricher(self.config.context)
         self.deduplicator = Deduplicator(self.config.deduplication)
         self.scorer = QualityScorer(self.config.quality, self.config.chunking)
+        self.auditor = CoverageAuditor()
+        self.coverage: list[CoverageReport] = []
 
     # ------------------------------------------------------------------
     # Public API
@@ -192,7 +195,16 @@ class Pipeline:
         document = self.cleaner.clean_document(document)
         document = self.analyzer.analyze(document)
         chunks = self.engine.chunk_document(document)
-        return self.enricher.enrich(chunks, document)
+        chunks = self.enricher.enrich(chunks, document)
+        if self.config.quality.validate_information_loss:
+            self.coverage.append(
+                self.auditor.audit(document, chunks, tokenizer=self.engine.meter.tokenizer)
+            )
+        return chunks
+
+    def audit_document(self, document: Document, chunks: list[Chunk]) -> CoverageReport:
+        """Account for every source block in ``document``."""
+        return self.auditor.audit(document, chunks, tokenizer=self.engine.meter.tokenizer)
 
     def finalize(self, chunks: list[Chunk]) -> list[Chunk]:
         """Corpus-wide steps: dedup, quality, optional filtering and embeddings."""
@@ -248,7 +260,7 @@ class Pipeline:
     def _statistics(
         self, chunks: list[Chunk], reports: list[DocumentReport], elapsed: float
     ) -> Statistics:
-        return Statistics.from_chunks(
+        statistics = Statistics.from_chunks(
             chunks,
             reports=reports,
             project=self.config.project.name,
@@ -256,6 +268,40 @@ class Pipeline:
             unit=self.config.chunking.unit.value,
             elapsed=elapsed,
         )
+        statistics.coverage = self.aggregate_coverage()
+        return statistics
+
+    def aggregate_coverage(self) -> dict:
+        """Roll per-document coverage reports into one corpus-level summary."""
+        if not self.coverage:
+            return {}
+        totals: dict[str, int] = {}
+        words: dict[str, int] = {}
+        dropped_blocks = 0
+        source_words = source_chars = source_tokens = 0
+        duplicated = 0
+        for report in self.coverage:
+            source_words += report.source_words
+            source_chars += report.source_chars
+            source_tokens += report.source_tokens
+            duplicated += report.duplicated_chars
+            dropped_blocks += len(report.dropped)
+            for key, value in report.blocks_by_destination.items():
+                totals[key] = totals.get(key, 0) + value
+            for key, value in report.words_by_destination.items():
+                words[key] = words.get(key, 0) + value
+        dropped_words = words.get("dropped", 0)
+        return {
+            "documents": len(self.coverage),
+            "source_chars": source_chars,
+            "source_words": source_words,
+            "source_tokens": source_tokens,
+            "duplicated_chars": duplicated,
+            "blocks_by_destination": totals,
+            "words_by_destination": words,
+            "dropped_blocks": dropped_blocks,
+            "retention": round(1.0 - dropped_words / source_words, 4) if source_words else 1.0,
+        }
 
 
 # ----------------------------------------------------------------------

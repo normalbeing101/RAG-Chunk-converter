@@ -100,6 +100,8 @@ def test_csv_export(tmp_path, chunks):
         "source",
         "chunk_index",
         "content_type",
+        "semantic_role",
+        "keywords",
     ]
     assert "Second line." in rows[0]["content"]
 

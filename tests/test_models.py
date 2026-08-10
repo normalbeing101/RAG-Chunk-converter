@@ -75,6 +75,8 @@ def test_chunk_record_roundtrip():
         "source",
         "chunk_index",
         "content_type",
+        "semantic_role",
+        "keywords",
     }
 
 

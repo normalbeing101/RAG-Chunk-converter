@@ -77,7 +77,9 @@ extend-exclude = ["build", "dist", ".venv"]
 select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "RUF", "TID"]
 # UP042: `str, Enum` keeps JSON/YAML round-tripping identical across the
 # Pydantic and PyYAML versions we support; StrEnum changes repr behaviour.
-ignore = ["B008", "N818", "RUF012", "SIM108", "UP042"]
+# SIM905: multi-line `"""...""".split()` word lists are far more readable and
+# diff-friendly than the equivalent list literal for vocabulary tables.
+ignore = ["B008", "N818", "RUF012", "SIM108", "SIM905", "UP042"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["E501"]

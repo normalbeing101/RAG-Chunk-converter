@@ -7,6 +7,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Semantic role classification** (`ragforge.semantics`). Every section is
+  classified as knowledge, definition, procedure, example, rule, reference,
+  code, retrieval terms, document metadata or navigation. Classification is
+  domain-agnostic: it combines a small vocabulary of document-organisation
+  headings with measured textual shape (segment count, mean segment length,
+  finite-verb ratio, table/code fractions). Shape overrides the heading, so a
+  section headed *Keywords* containing prose stays knowledge, and a section
+  headed *Overview* that is really 300 noun phrases is treated as terms.
+- **`semantic` chunking strategy, now the default.** Builds concept-level
+  semantic units (heading + explanation + definitions + rules + examples),
+  merges small related siblings, and splits oversized units only at paragraph
+  and sentence boundaries — never inside a definition, table row, list item,
+  code block or misconception/correction pair.
+- **`RetrievalMetadata` on every chunk.** Keyword, tag, alias, entity,
+  related-concept and question sections become structured fields
+  (`retrieval.keywords`, `retrieval.aliases`, ...) instead of ordinary
+  knowledge chunks. Nothing is discarded; terms are preserved verbatim.
+- **Information-loss auditing** (`ragforge.quality.CoverageAuditor`). Every
+  source block is routed to `knowledge`, `metadata`, `retrieval_terms` or
+  `dropped`, with a retention figure in `statistics.coverage`. `ragforge
+  validate` and `ragforge stats` print the audit.
+- **`retrieval_score`** quality sub-score answering "would this chunk answer a
+  question?", plus flags `HEADING_ONLY`, `METADATA_ONLY`, `KEYWORD_HEAVY`,
+  `ALIAS_HEAVY`, `ORPHANED_CONTEXT`, `FRAGMENTED_LIST`, `FRAGMENTED_TABLE`,
+  `OVERSIZED`, `UNDERSIZED`.
+- **`semantics` configuration section** and `quality.validate_information_loss`.
+- CLI `--role` and `--knowledge-only` filters on `inspect`; API equivalents on
+  `GET /jobs/{id}/chunks`; coverage exposed on `GET /jobs/{id}/validate`.
+- `semantic_role` and `keywords` columns in the CSV export; role and retrieval
+  terms in the Markdown report and `inspect` detail view.
+- 78 new tests: 25 structural scenarios, classifier behaviour, a
+  domain-vocabulary guard, and a BM25 + dense-embedding answerability suite.
+
+### Changed
+
+- **Quality weights rebalanced towards retrieval usefulness.** `length` fell
+  from 0.30 to 0.10 and `retrieval` was introduced at 0.30. Previously a
+  500-token dump of search aliases scored 0.96 — second-highest in the dataset
+  — while a complete 150-token explanation scored 0.76.
+- **Overlap rewritten.** It now applies only between pieces of a single split
+  unit, inserts carried text *after* the heading, refuses tails that start with
+  a heading, list marker, table row or code fence, and skips text the next
+  chunk already contains. Previously it spliced a `### Heading` into the middle
+  of a sentence and duplicated 12,368 characters across 41 chunks.
+- `Strategy.AUTO` now selects `semantic` for structured documents.
+- Content-type classification is shared by all strategies
+  (`classify_content_type`), so a chunk is labelled identically regardless of
+  how it was assembled.
+
+### Fixed
+
+- Tables and fenced diagrams were being misread as keyword lists because their
+  lines are short and verb-free.
+- Oversized atoms with no internal boundary (one enormous token, a minified
+  line) produced a single over-limit chunk instead of being hard-split.
+- An orphaned heading followed by a section with its own heading lost its text.
+- `FRAGMENTED_LIST` fired on source documents that legitimately number their
+  rules across several headings; it now fires only when this pipeline split the
+  list.
+- Merged units reported their shared ancestor heading path; they now report the
+  deepest path they actually cover, so section filters still work.
+
+### Measured on a 96 KB technical document
+
+| Metric | Before | After |
+|---|---|---|
+| Chunks | 154 | 62 |
+| Keyword/alias dump chunks | 10 | 0 |
+| Average size | 174 tokens | 317 tokens |
+| Overlap characters duplicated | 12,368 | 0 |
+| Retrieval terms captured as metadata | 0 | 490 |
+| Source retention | not measured | 100.00% |
+| Dense top-5 slots polluted by term dumps | 8% | 0% |
+
 ## [0.1.0] - 2026-08-09
 
 First public release.

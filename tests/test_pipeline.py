@@ -180,8 +180,9 @@ def test_large_document_streaming(tmp_path, config):
     )
     path.write_text(body, encoding="utf-8")
     result = Pipeline(config).run(path, write=False)
-    assert result.statistics.total_chunks > 500
+    assert result.statistics.total_chunks >= 100
     assert result.statistics.elapsed_seconds >= 0
+    assert result.statistics.coverage["retention"] >= 0.99
 
 
 def test_strategy_recorded_in_metadata(tmp_path, config, markdown_doc):

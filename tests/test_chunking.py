@@ -321,7 +321,9 @@ def test_content_type_classification(markdown_doc):
     chunks = build(markdown_doc, target_size=80, min_size=10, max_size=160)
     types = {c.metadata.content_type for c in chunks}
     assert "text" in types
-    assert "code" in types
+    # Code is either its own chunk or the dominant part of a mixed one.
+    assert types & {"code", "mixed"}
+    assert any("```python" in c.content for c in chunks)
 
 
 # ---------------------------------------------------------------- unicode

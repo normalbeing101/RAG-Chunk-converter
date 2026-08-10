@@ -18,6 +18,7 @@ from ragforge.errors import ConfigError
 class Strategy(str, Enum):
     """Available chunking strategies."""
 
+    SEMANTIC = "semantic"
     STRUCTURAL = "structural"
     RECURSIVE = "recursive"
     SENTENCE = "sentence"
@@ -64,7 +65,7 @@ class ChunkingConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    strategy: Strategy | str = Strategy.RECURSIVE
+    strategy: Strategy | str = Strategy.SEMANTIC
     """A built-in :class:`Strategy` or the name of a custom registered strategy."""
     target_size: int = Field(default=500, gt=0)
     min_size: int = Field(default=100, ge=0)
@@ -169,6 +170,30 @@ class DeduplicationConfig(BaseModel):
     """Chunks shorter than this (characters) are ignored by dedup."""
 
 
+class SemanticsConfig(BaseModel):
+    """Role classification: separating knowledge from retrieval metadata."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    separate_retrieval_metadata: bool = True
+    """Extract keyword/tag/alias sections into structured fields instead of
+    emitting them as ordinary knowledge chunks."""
+    min_terms: int = Field(default=5, ge=2)
+    """A section needs at least this many term-like segments to be treated as
+    a term list rather than prose."""
+    keep_document_metadata: bool = True
+    """Emit document front-matter as chunks marked ``semantic_role`` so it can
+    be filtered rather than silently dropped."""
+    max_terms_per_field: int = Field(default=256, ge=1)
+    attach_terms_to_chunks: bool = True
+    """Attach harvested terms to every knowledge chunk of the document."""
+    include_terms_in_embedding_text: bool = False
+    """When true a short, capped term line is appended to the embedding text.
+    Off by default: large term lists dilute the vector."""
+    max_embedded_terms: int = Field(default=12, ge=0)
+
+
 class ContextConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -194,6 +219,10 @@ class QualityConfig(BaseModel):
     drop_low_quality: bool = False
     low_context_word_threshold: int = 12
     llm_evaluator: bool = False
+    validate_information_loss: bool = True
+    """Account for every source block and report anything unaccounted for."""
+    min_knowledge_words: int = Field(default=8, ge=0)
+    """Below this a chunk is considered to carry no real information."""
 
 
 class EmbeddingConfig(BaseModel):
@@ -230,6 +259,7 @@ class ForgeConfig(BaseModel):
 
     project: ProjectConfig = Field(default_factory=ProjectConfig)
     chunking: ChunkingConfig = Field(default_factory=ChunkingConfig)
+    semantics: SemanticsConfig = Field(default_factory=SemanticsConfig)
     cleaning: CleaningConfig = Field(default_factory=CleaningConfig)
     deduplication: DeduplicationConfig = Field(default_factory=DeduplicationConfig)
     context: ContextConfig = Field(default_factory=ContextConfig)

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -239,6 +239,13 @@ def inspect(
     section: Annotated[
         str | None, typer.Option("--section", help="Filter chunks by heading path substring.")
     ] = None,
+    role: Annotated[
+        str | None,
+        typer.Option("--role", help="Filter by semantic role (knowledge, document_meta, ...)."),
+    ] = None,
+    knowledge_only: Annotated[
+        bool, typer.Option("--knowledge-only", help="Hide metadata and navigation chunks.")
+    ] = False,
     flagged: Annotated[
         bool, typer.Option("--flagged", help="Only show chunks with warnings.")
     ] = False,
@@ -269,6 +276,10 @@ def inspect(
     if section:
         needle = section.casefold()
         chunks = [c for c in chunks if needle in " > ".join(c.metadata.heading_path).casefold()]
+    if role:
+        chunks = [c for c in chunks if c.metadata.semantic_role == role]
+    if knowledge_only:
+        chunks = [c for c in chunks if c.is_knowledge]
     if flagged:
         chunks = [c for c in chunks if c.quality and c.quality.flags]
 
@@ -304,7 +315,7 @@ def stats(
         config = _load_config(
             config_path, strategy=strategy, chunk_size=chunk_size, unit=unit, reference=target
         )
-        chunks = _load_chunks(target, config=config)
+        chunks, coverage = _load_chunks(target, config=config, want_coverage=True)
     except RagForgeError as exc:
         _fail(exc)
         return
@@ -315,6 +326,7 @@ def stats(
         strategy=config.chunking.strategy_name,
         unit=config.chunking.unit.value,
     )
+    statistics.coverage = coverage
     if as_json:
         render.console.print_json(json.dumps(statistics.model_dump(mode="json")))
     else:
@@ -323,6 +335,9 @@ def stats(
         render.print_breakdown("Chunks by document", statistics.chunks_by_document)
         render.print_breakdown("Chunks by section", statistics.chunks_by_section)
         render.print_breakdown("Chunks by content type", statistics.chunks_by_content_type)
+        render.print_breakdown("Chunks by semantic role", statistics.chunks_by_role)
+        if statistics.retrieval_terms:
+            render.print_breakdown("Retrieval terms harvested", statistics.retrieval_terms)
         if statistics.flag_counts:
             render.print_breakdown("Quality flags", statistics.flag_counts)
     if save:
@@ -342,13 +357,15 @@ def validate(
     """Validate a chunk dataset for structural problems."""
     try:
         config = _load_config(config_path, reference=target)
-        chunks = _load_chunks(target, config=config)
+        chunks, coverage = _load_chunks(target, config=config, want_coverage=True)
     except RagForgeError as exc:
         _fail(exc)
         return
 
     report = DatasetValidator(config).validate(chunks)
     render.print_validation(report)
+    if coverage:
+        render.print_coverage(coverage)
     if report.errors or (strict and report.warnings):
         raise typer.Exit(code=1)
 
@@ -446,12 +463,19 @@ def _load_chunks(
     chunk_size: int | None = None,
     overlap: float | None = None,
     unit: str | None = None,
-) -> list[Chunk]:
-    """Load chunks either from an exported dataset or by processing sources."""
-    if target.is_file() and target.suffix.lower() in {".jsonl", ".ndjson"}:
-        return _read_dataset(target)
-    if target.is_file() and target.suffix.lower() == ".json" and _looks_like_dataset(target):
-        return _read_dataset(target)
+    want_coverage: bool = False,
+) -> Any:
+    """Load chunks either from an exported dataset or by processing sources.
+
+    With ``want_coverage`` the return value is ``(chunks, coverage)``; coverage
+    is empty for pre-exported datasets, where the source is no longer present.
+    """
+    if target.is_file() and (
+        target.suffix.lower() in {".jsonl", ".ndjson"}
+        or (target.suffix.lower() == ".json" and _looks_like_dataset(target))
+    ):
+        chunks = _read_dataset(target)
+        return (chunks, {}) if want_coverage else chunks
 
     cfg = config or _load_config(
         config_path,
@@ -461,9 +485,12 @@ def _load_chunks(
         unit=unit,
         reference=target,
     )
-    result: ForgeResult = Pipeline(cfg).run(target, write=False)
+    pipeline = Pipeline(cfg)
+    result: ForgeResult = pipeline.run(target, write=False)
     if result.failed and not result.chunks:
         raise InputError(result.failed[0].error or "Processing failed.")
+    if want_coverage:
+        return result.chunks, result.statistics.coverage
     return result.chunks
 
 
@@ -541,7 +568,7 @@ project:
   description: ""
 
 chunking:
-  strategy: recursive      # structural | recursive | sentence | code | auto
+  strategy: semantic       # semantic | structural | recursive | sentence | code | auto
   target_size: 500
   min_size: 100
   max_size: 800
@@ -554,6 +581,16 @@ chunking:
   keep_tables_intact: true
   merge_small_chunks: true
   split_on_headings: true
+
+semantics:
+  enabled: true
+  # Keyword / tag / alias / entity sections become structured metadata fields
+  # instead of ordinary knowledge chunks. Nothing is discarded.
+  separate_retrieval_metadata: true
+  keep_document_metadata: true    # front-matter kept, but role-marked
+  min_terms: 5
+  max_terms_per_field: 256
+  include_terms_in_embedding_text: false
 
 cleaning:
   enabled: true
@@ -586,6 +623,7 @@ quality:
   enabled: true
   drop_low_quality: false
   min_quality_score: 0.0
+  validate_information_loss: true
 
 embeddings:
   enabled: false

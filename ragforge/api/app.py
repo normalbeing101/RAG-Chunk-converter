@@ -66,7 +66,7 @@ def formats() -> FormatsResponse:
 @app.post("/process", response_model=JobResponse, tags=["processing"])
 async def process_upload(
     file: Annotated[UploadFile, File(description="Document to chunk.")],
-    strategy: Annotated[str, Form()] = Strategy.RECURSIVE.value,
+    strategy: Annotated[str, Form()] = Strategy.SEMANTIC.value,
     target_size: Annotated[int, Form()] = 500,
     min_size: Annotated[int, Form()] = 100,
     max_size: Annotated[int, Form()] = 800,
@@ -75,6 +75,7 @@ async def process_upload(
     clean: Annotated[bool, Form()] = True,
     deduplicate: Annotated[bool, Form()] = True,
     context_prefix: Annotated[bool, Form()] = True,
+    separate_retrieval_metadata: Annotated[bool, Form()] = True,
 ) -> JobResponse:
     """Upload a document and receive a completed chunking job."""
     raw = await file.read()
@@ -93,6 +94,7 @@ async def process_upload(
             clean=clean,
             deduplicate=deduplicate,
             context_prefix=context_prefix,
+            separate_retrieval_metadata=separate_retrieval_metadata,
         )
         config = options.to_config()
     except (ValueError, RagForgeError) as exc:
@@ -177,6 +179,10 @@ def get_chunks(
     search: Annotated[str | None, Query(description="Case-insensitive content filter.")] = None,
     section: Annotated[str | None, Query(description="Heading path filter.")] = None,
     content_type: Annotated[str | None, Query()] = None,
+    role: Annotated[str | None, Query(description="Filter by semantic role.")] = None,
+    knowledge_only: Annotated[
+        bool, Query(description="Exclude metadata and navigation chunks.")
+    ] = False,
     flagged: Annotated[bool, Query(description="Only chunks with quality flags.")] = False,
     offset: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=500)] = 50,
@@ -191,6 +197,10 @@ def get_chunks(
         chunks = [c for c in chunks if needle in " > ".join(c.metadata.heading_path).casefold()]
     if content_type:
         chunks = [c for c in chunks if c.metadata.content_type == content_type]
+    if role:
+        chunks = [c for c in chunks if c.metadata.semantic_role == role]
+    if knowledge_only:
+        chunks = [c for c in chunks if c.is_knowledge]
     if flagged:
         chunks = [c for c in chunks if c.quality and c.quality.flags]
     return ChunkPage(
@@ -218,6 +228,7 @@ def validate_job(job_id: str) -> dict[str, Any]:
         "errors": [i.to_dict() for i in report.errors],
         "warnings": [i.to_dict() for i in report.warnings],
         "summary": report.summary(),
+        "coverage": job.statistics.coverage if job.statistics else {},
     }
 
 
@@ -318,6 +329,7 @@ def _finish(job: Job, pipeline: Pipeline, documents: list, chunks: list, config)
     job.statistics.documents = len(documents)
     job.statistics.original_characters = sum(len(d.content) for d in documents)
     job.statistics.original_tokens = sum(pipeline.engine.meter.tokens(d.content) for d in documents)
+    job.statistics.coverage = pipeline.aggregate_coverage()
     job.status = "completed"
 
 

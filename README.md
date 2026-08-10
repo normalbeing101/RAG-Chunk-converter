@@ -16,10 +16,12 @@ Large document
       ↓  parse        (.txt .md .html .json .csv .pdf)
       ↓  clean        (unicode, whitespace, boilerplate - all opt-in)
       ↓  analyze      (headings, paragraphs, lists, tables, code, quotes)
-      ↓  chunk        (structural / recursive / sentence / code-aware)
+      ↓  classify     (knowledge vs keywords/tags/aliases vs front-matter)
+      ↓  chunk        (semantic / structural / recursive / sentence / code)
       ↓  enrich       (heading path, parents, neighbours, context prefix)
       ↓  deduplicate  (exact + MinHash near-duplicates)
-      ↓  score        (length, coherence, context, information)
+      ↓  score        (retrieval usefulness, information, coherence, context)
+      ↓  audit        (every source block accounted for - zero silent loss)
       ↓  export       (jsonl / json / csv / markdown + statistics)
 RAG-ready dataset
 ```
@@ -29,6 +31,7 @@ RAG-ready dataset
 ## Table of contents
 
 - [Why intelligent chunking matters](#why-intelligent-chunking-matters)
+- [Knowledge vs retrieval metadata](#knowledge-vs-retrieval-metadata)
 - [Features](#features)
 - [Installation](#installation)
 - [Quick start](#quick-start)
@@ -95,18 +98,94 @@ retriever to expand context to its neighbours or its parent section.
 
 ---
 
+## Knowledge vs retrieval metadata
+
+Technical documents are full of sections that are useful for *finding*
+information but are not information themselves:
+
+```text
+## Keywords
+event execution order; runtime execution; frame lifecycle; scene lifecycle;
+event sheet order; event evaluation pipeline; conditions and actions; ...
+(300 more)
+```
+
+A naive chunker turns that into a 500-token chunk. It looks great by every
+size-based metric - long, coherent, keyword-rich - and it is **useless**. It
+answers no question, and because it contains every term in the document, its
+embedding sits close to *every* query about the document. It crowds out the
+chunks that hold the real answers.
+
+RAG ChunkForge classifies each section by **what it is for**, then routes it:
+
+| Source section | Destination | Result |
+|---|---|---|
+| Explanations, rules, procedures, examples | `content` | a retrievable knowledge chunk |
+| Keywords, tags, aliases, entities, related topics | `retrieval.*` | structured metadata fields |
+| Anticipated questions | `retrieval.questions` | query-side matching signal |
+| Chunk ID, category, difficulty, authoring notes | role-marked chunk | filterable, not deleted |
+
+**Nothing is discarded.** Every term is preserved verbatim in a structured
+field, and the coverage audit proves it:
+
+```text
+Information-loss audit
+  Destination        Blocks    Words
+  knowledge             842   13,741
+  retrieval_terms         2        7
+Retention 100.00% (13,748 source words, 0 unaccounted block(s))
+```
+
+### Measured impact
+
+Same 96 KB document, before and after:
+
+| Metric | Before | After |
+|---|---|---|
+| Chunks | 154 | **62** |
+| Keyword/alias dump chunks | 10 | **0** |
+| Average size | 174 tokens | **317 tokens** |
+| Overlap chars duplicated | 12,368 | **0** |
+| Chunks with >200 duplicated chars | 41 | **0** |
+| Retrieval terms captured as metadata | 0 | **490** |
+| Source retention | not measured | **100.00%** |
+| Dense top-5 slots polluted by term dumps | 8% | **0%** |
+
+That last row is the one that matters. BM25 discounts keyword dumps
+automatically through IDF, so lexical search hides the problem — but dense
+embedding retrieval, which is what RAG actually uses, does not.
+
+### Classification is domain-agnostic
+
+The classifier never matches subject vocabulary. It combines two signals:
+
+1. **Heading intent** — a small vocabulary of *document-organisation* words
+   (`keywords`, `glossary`, `procedure`, `see also`) that authors reuse in
+   every field. `Photosynthesis` and `Kubernetes Ingress` match nothing.
+2. **Textual shape** — segment count, mean segment length, the fraction of
+   segments containing a finite verb, table/code ratios.
+
+**Shape wins.** A section headed *Keywords* that contains real prose is kept as
+knowledge; a section headed *Overview* that is really 300 semicolon-separated
+noun phrases is extracted as terms. A test asserts no domain term ever leaks
+into the classifier source.
+
+---
+
 ## Features
 
 | | |
 |---|---|
 | **6 input formats** | `.txt` `.md` `.html` `.json`/`.jsonl` `.csv`/`.tsv` `.pdf` - pluggable registry |
 | **Structure detection** | titles, headings (hierarchy preserved), paragraphs, bullet/numbered lists, tables, fenced & indented code, quotes |
-| **4 strategies + auto** | `structural`, `recursive`, `sentence`, `code`, `auto` |
+| **Semantic classification** | knowledge / definition / procedure / example / rule / reference / code vs keywords, tags, aliases, entities, front-matter |
+| **5 strategies + auto** | `semantic` (default), `structural`, `recursive`, `sentence`, `code`, `auto` |
 | **Size units** | characters, words, tokens (heuristic estimator or exact `tiktoken`) |
-| **Smart overlap** | applied at paragraph → sentence → line → word boundaries, never across sections |
+| **Smart overlap** | only between pieces of one split unit, at paragraph/sentence boundaries, never duplicating headings or fences |
 | **Context enrichment** | heading path, parent section id, previous/next chunk, optional `context_prefix` |
 | **Deduplication** | exact hashing + MinHash/LSH near-duplicates (sub-quadratic, no external deps) |
-| **Quality scoring** | LLM-free: length, coherence, context, information + `TOO_SHORT`, `BROKEN_SENTENCE`, `CODE_SPLIT`, ... |
+| **Quality scoring** | LLM-free, retrieval-weighted: `KEYWORD_HEAVY`, `HEADING_ONLY`, `METADATA_ONLY`, `FRAGMENTED_TABLE`, `ORPHANED_CONTEXT`, ... |
+| **Information-loss audit** | every source block routed to knowledge / metadata / terms, with a retention figure |
 | **Exports** | JSONL, JSON, CSV, Markdown report, `statistics.json` |
 | **Embeddings** | optional, provider-agnostic (`hash`, sentence-transformers, Ollama, OpenAI-compatible) |
 | **Interfaces** | polished Typer CLI, FastAPI REST API, zero-build web inspection UI |
@@ -153,6 +232,8 @@ ragforge process ./documents/ \
 ragforge inspect output/chunks.jsonl --limit 30
 ragforge inspect output/chunks.jsonl --chunk doc_9f1c2a_chunk_0007
 ragforge inspect output/chunks.jsonl --search "object picking" --flagged
+ragforge inspect output/chunks.jsonl --knowledge-only     # hide front-matter
+ragforge inspect output/chunks.jsonl --role document_meta # inspect what was set aside
 
 # Statistics and distribution charts
 ragforge stats output/chunks.jsonl
@@ -198,7 +279,7 @@ Warnings:         13
 
 ```text
 -c, --config PATH        YAML/JSON configuration file
--s, --strategy NAME      structural | recursive | sentence | code | auto
+-s, --strategy NAME      semantic | structural | recursive | sentence | code | auto
     --chunk-size N       target size
     --min-size N         minimum size
     --max-size N         maximum size
@@ -241,7 +322,7 @@ project:
   name: my-rag-dataset
 
 chunking:
-  strategy: recursive      # structural | recursive | sentence | code | auto
+  strategy: semantic       # semantic | structural | recursive | sentence | code | auto
   target_size: 500
   min_size: 100
   max_size: 800
@@ -251,6 +332,17 @@ chunking:
   tokenizer: heuristic     # or tiktoken:cl100k_base
   keep_code_blocks_intact: true
   keep_tables_intact: true
+
+semantics:
+  enabled: true
+  separate_retrieval_metadata: true   # keywords/tags/aliases -> metadata fields
+  keep_document_metadata: true        # front-matter kept, role-marked
+  min_terms: 5                        # segments needed to call it a term list
+  max_terms_per_field: 256
+  include_terms_in_embedding_text: false
+
+quality:
+  validate_information_loss: true     # account for every source block
 
 cleaning:
   normalize_unicode: true
@@ -280,6 +372,25 @@ output:
 ---
 
 ## Chunking strategies
+
+### `semantic` *(default)*
+
+Five stages:
+
+1. **Classify** every section by semantic role.
+2. **Build semantic units** — a heading plus the explanation, definitions,
+   rules and examples that belong to the same concept.
+3. **Merge** small related units (siblings or parent/child) up to the target
+   size. A glossary of 30 one-line terms becomes a handful of usable chunks
+   instead of 30 unusable ones.
+4. **Split** oversized units at paragraph → sentence boundaries only, never
+   inside a definition, table row, list item, code block or
+   misconception/correction pair. The heading is repeated on every piece.
+5. **Route** keyword/tag/alias sections into `retrieval.*` metadata fields and
+   mark front-matter with its role.
+
+Guarantees: no heading-only chunks, no keyword-dump chunks, tables keep their
+header, code stays fenced, procedures keep their order.
 
 ### `structural`
 
@@ -314,7 +425,7 @@ groups) and re-fenced, with `content_type: "code"` and `language` recorded.
 
 ### `auto`
 
-Inspects the parsed structure and picks `code`, `recursive` or `sentence`.
+Inspects the parsed structure and picks `code`, `semantic` or `sentence`.
 
 All strategies share the same guarantees: chunks never cross a section boundary,
 tables keep their header row when split, and lists split at item boundaries.
@@ -338,7 +449,8 @@ tables keep their header row when split, and lists split at item boundaries.
 ### CSV columns
 
 ```text
-id, document_id, content, title, section, source, chunk_index, content_type
+id, document_id, content, title, section, source, chunk_index,
+content_type, semantic_role, keywords
 ```
 
 ### Markdown
@@ -351,7 +463,8 @@ A human-readable inspection report with metadata blocks per chunk.
 |---|---|
 | `document_id`, `title`, `source` | provenance |
 | `section`, `parent_section`, `heading_path` | structural position |
-| `content_type` | `text` `code` `table` `list` `quote` `heading` `mixed` |
+| `content_type` | `text` `code` `table` `list` `quote` `heading` `mixed` `metadata` |
+| `semantic_role` | `knowledge` `definition` `procedure` `example` `rule` `reference` `code` `document_meta` `navigation` |
 | `language` | for code chunks |
 | `chunk_index`, `total_chunks` | position within the document |
 | `strategy`, `unit`, `size` | how it was produced |
@@ -362,13 +475,65 @@ A human-readable inspection report with metadata blocks per chunk.
 | `previous_chunk`, `next_chunk` | neighbour ids for context expansion |
 | `duplicate_of`, `similarity` | deduplication result |
 
-`quality` carries `quality_score`, `length_score`, `coherence_score`,
-`context_score`, `information_score` and `flags`:
+### Retrieval metadata
+
+A separate `retrieval` object holds the search-support terms harvested from
+keyword/tag/alias sections. They are **not** concatenated into `content`:
+
+```json
+"retrieval": {
+  "tags": ["..."],
+  "keywords": ["..."],
+  "aliases": ["..."],
+  "entities": ["..."],
+  "related_concepts": ["..."],
+  "questions": ["How does object picking affect subsequent actions?"]
+}
+```
+
+Use them for metadata filtering, hybrid search, or query expansion — all of
+which work better than dumping them into the embedded text.
+
+### Quality
+
+`quality` carries `quality_score` plus five sub-scores and any flags:
+
+| Sub-score | Weight | Measures |
+|---|---|---|
+| `retrieval_score` | 0.30 | Would this chunk answer a question? |
+| `information_score` | 0.25 | Signal density, prose vs term inventory |
+| `coherence_score` | 0.20 | Complete sentences, intact code/tables/lists |
+| `context_score` | 0.15 | Heading path, title, self-description |
+| `length_score` | 0.10 | Proximity to the target size |
+
+Length is deliberately the *smallest* weight. When it was worth 0.30, a
+500-token dump of search aliases scored 0.96 — second-highest in the whole
+dataset — while a real 150-token explanation scored 0.76.
 
 ```text
-TOO_SHORT  TOO_LONG  LOW_CONTEXT  DUPLICATE  NEAR_DUPLICATE
-BROKEN_SENTENCE  CODE_SPLIT  LOW_INFORMATION  MIXED_TOPICS
+TOO_SHORT  TOO_LONG  OVERSIZED  UNDERSIZED  LOW_CONTEXT
+DUPLICATE  NEAR_DUPLICATE  BROKEN_SENTENCE  MIXED_TOPICS  LOW_INFORMATION
+HEADING_ONLY  METADATA_ONLY  KEYWORD_HEAVY  ALIAS_HEAVY  ORPHANED_CONTEXT
+CODE_SPLIT  FRAGMENTED_LIST  FRAGMENTED_TABLE
 ```
+
+### Information-loss audit
+
+`statistics.coverage` accounts for every source block:
+
+```json
+"coverage": {
+  "source_words": 13748,
+  "blocks_by_destination": { "knowledge": 842, "retrieval_terms": 2 },
+  "words_by_destination":  { "knowledge": 13741, "retrieval_terms": 7 },
+  "dropped_blocks": 0,
+  "duplicated_chars": 0,
+  "retention": 1.0
+}
+```
+
+`dropped_blocks` must be zero. Anything else means text went missing, and
+`ragforge validate` prints exactly which blocks.
 
 ---
 
@@ -467,8 +632,10 @@ ragforge/
 ├── cli/              Typer CLI + Rich rendering
 ├── parsers/          txt, markdown, html, json, csv, pdf (+ registry)
 ├── preprocessing/    cleaner.py, structure.py
+├── semantics/        roles.py, classifier.py  (knowledge vs retrieval metadata)
 ├── chunking/
 │   ├── base.py       Chunker interface, SizeMeter
+│   ├── semantic.py   role-aware concept chunking (default)
 │   ├── structural.py section packing (shared core)
 │   ├── recursive.py  separator hierarchy
 │   ├── sentence.py   sentence-boundary chunking
@@ -477,7 +644,7 @@ ragforge/
 │   └── engine.py     strategy selection + materialisation
 ├── context/          heading paths, parents, neighbours, prefixes
 ├── deduplication/    MinHash + LSH, exact hashing
-├── quality/          scorer.py, validator.py
+├── quality/          scorer.py, validator.py, coverage.py
 ├── embeddings/       provider abstraction + built-ins
 ├── exporters/        jsonl, json, csv, markdown, statistics
 ├── models/           Pydantic models (Document, Chunk, Config, Result)

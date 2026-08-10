@@ -54,11 +54,22 @@ class Statistics(BaseModel):
     duplicates: int = 0
     warnings: int = 0
     average_quality: float = 0.0
+    average_retrieval_score: float = 0.0
+    knowledge_chunks: int = 0
+    """Chunks that carry retrievable knowledge (excludes metadata/navigation)."""
+    metadata_chunks: int = 0
+    keyword_heavy_chunks: int = 0
+    heading_only_chunks: int = 0
+    retrieval_terms: dict[str, int] = Field(default_factory=dict)
+    """Count of harvested terms per metadata field."""
     size_histogram: list[dict[str, Any]] = Field(default_factory=list)
     chunks_by_document: dict[str, int] = Field(default_factory=dict)
     chunks_by_section: dict[str, int] = Field(default_factory=dict)
     chunks_by_content_type: dict[str, int] = Field(default_factory=dict)
+    chunks_by_role: dict[str, int] = Field(default_factory=dict)
     flag_counts: dict[str, int] = Field(default_factory=dict)
+    coverage: dict[str, Any] = Field(default_factory=dict)
+    """Information-loss accounting; see :class:`~ragforge.quality.CoverageReport`."""
     elapsed_seconds: float = 0.0
 
     @classmethod
@@ -76,18 +87,25 @@ class Statistics(BaseModel):
         reports = reports or []
         sizes = [c.metadata.size for c in chunks] or [0]
         flag_counter: Counter[str] = Counter()
+        term_counter: Counter[str] = Counter()
         duplicates = 0
         warned = 0
         quality_scores: list[float] = []
+        retrieval_scores: list[float] = []
         for chunk in chunks:
             if chunk.quality:
                 quality_scores.append(chunk.quality.quality_score)
+                retrieval_scores.append(chunk.quality.retrieval_score)
                 if chunk.quality.flags:
                     warned += 1
                 for flag in chunk.quality.flags:
                     flag_counter[flag.value] += 1
             if chunk.metadata.duplicate_of:
                 duplicates += 1
+        for name in ("keywords", "tags", "aliases", "entities", "related_concepts", "questions"):
+            unique = {t.casefold() for c in chunks for t in getattr(c.retrieval, name)}
+            if unique:
+                term_counter[name] = len(unique)
 
         ok_reports = [r for r in reports if r.ok]
         return cls(
@@ -109,6 +127,15 @@ class Statistics(BaseModel):
             duplicates=duplicates,
             warnings=warned,
             average_quality=round(pystats.fmean(quality_scores), 4) if quality_scores else 0.0,
+            average_retrieval_score=(
+                round(pystats.fmean(retrieval_scores), 4) if retrieval_scores else 0.0
+            ),
+            knowledge_chunks=sum(1 for c in chunks if c.is_knowledge),
+            metadata_chunks=sum(1 for c in chunks if not c.is_knowledge),
+            keyword_heavy_chunks=flag_counter.get("KEYWORD_HEAVY", 0),
+            heading_only_chunks=flag_counter.get("HEADING_ONLY", 0),
+            retrieval_terms=dict(term_counter),
+            chunks_by_role=dict(Counter(c.metadata.semantic_role for c in chunks)),
             size_histogram=_histogram(sizes, bins=bins),
             chunks_by_document=dict(
                 Counter(c.metadata.title or c.metadata.document_id for c in chunks)

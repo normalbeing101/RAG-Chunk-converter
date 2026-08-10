@@ -1,6 +1,12 @@
 """Structured data models used across RAG ChunkForge."""
 
-from ragforge.models.chunk import Chunk, ChunkMetadata, ChunkQuality, QualityFlag
+from ragforge.models.chunk import (
+    Chunk,
+    ChunkMetadata,
+    ChunkQuality,
+    QualityFlag,
+    RetrievalMetadata,
+)
 from ragforge.models.config import (
     ChunkingConfig,
     CleaningConfig,
@@ -37,6 +43,7 @@ __all__ = [
     "ProjectConfig",
     "QualityConfig",
     "QualityFlag",
+    "RetrievalMetadata",
     "SizeUnit",
     "Statistics",
     "Strategy",

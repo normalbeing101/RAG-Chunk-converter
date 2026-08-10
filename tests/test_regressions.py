@@ -200,12 +200,16 @@ def test_small_sibling_sections_are_merged():
     assert all(c.metadata.size <= 200 for c in chunks)
 
 
-def test_merged_group_reports_only_the_shared_heading_path():
+def test_merged_sections_keep_every_heading_inline():
+    """Merging small siblings must not lose either heading from the text."""
     text = "# Guide\n\n## Alpha\n\nShort one.\n\n## Beta\n\nShort two."
     chunks = build(text, target_size=200, min_size=100, max_size=300)
-    merged = [c for c in chunks if c.metadata.extra.get("merged_sections")]
+    merged = [c for c in chunks if "Beta" in c.content and "Alpha" in c.content]
     for chunk in merged:
-        assert chunk.metadata.section != "Alpha" or "Beta" not in chunk.content
+        # Both headings survive verbatim, so the chunk stays self-describing.
+        assert "## Alpha" in chunk.content
+        assert "## Beta" in chunk.content
+        assert chunk.metadata.extra.get("merged_sections")
 
 
 def test_reindexing_keeps_neighbor_links_valid_after_drop(tmp_path, markdown_doc):

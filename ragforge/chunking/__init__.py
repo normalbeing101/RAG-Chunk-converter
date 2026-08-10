@@ -10,6 +10,7 @@ from ragforge.chunking.engine import (
 )
 from ragforge.chunking.overlap import OverlapApplier
 from ragforge.chunking.recursive import RecursiveChunker, RecursiveSplitter
+from ragforge.chunking.semantic import SemanticChunker, SemanticUnit
 from ragforge.chunking.sentence import SentenceChunker
 from ragforge.chunking.structural import StructuralChunker, build_sections
 
@@ -21,6 +22,8 @@ __all__ = [
     "OverlapApplier",
     "RecursiveChunker",
     "RecursiveSplitter",
+    "SemanticChunker",
+    "SemanticUnit",
     "SentenceChunker",
     "SizeMeter",
     "StructuralChunker",

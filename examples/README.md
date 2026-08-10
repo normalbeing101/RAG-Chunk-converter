@@ -59,23 +59,25 @@ What is wrong:
 
 ### Good: RAG ChunkForge
 
+Run `ragforge inspect examples/output/chunks.jsonl --chunk 0` to see this:
+
 ```json
 {
-  "id": "doc_e0a9ee4828_chunk_0002",
-  "content": "## Example\n\nIf the player overlaps an enemy, the enemy can be selected and an action can modify its health. Only the overlapping instance is affected.\n\n```javascript\n// Approximation of the internal picking logic.\nfunction pickColliding(instances, player) {\n  return instances.filter((instance) => instance.collidesWith(player));\n}\n```",
+  "id": "doc_e0a9ee4828_chunk_0000",
+  "content": "# Object Picking\n\nObject picking determines which instances of an object are selected by conditions. ...\n\n## How it works\n\nWhen a condition is evaluated, GDevelop maintains a list of picked instances. ...\n\n### Example\n\n...\n\n```javascript\n// Approximation of the internal picking logic.\nfunction pickColliding(instances, player) {\n  return instances.filter((instance) => instance.collidesWith(player));\n}\n```",
   "metadata": {
     "title": "GDevelop Documentation",
-    "section": "Example",
-    "parent_section": "Object Picking",
-    "heading_path": ["Object Picking", "Example"],
+    "section": "Object picking in sub-events",
+    "parent_section": "How it works",
+    "heading_path": ["Object Picking", "How it works", "Object picking in sub-events"],
     "content_type": "code",
+    "semantic_role": "code",
     "language": "javascript",
-    "previous_chunk": "doc_e0a9ee4828_chunk_0001",
-    "next_chunk": "doc_e0a9ee4828_chunk_0003",
-    "parent_id": "doc_e0a9ee4828_section_c53fd819"
+    "next_chunk": "doc_e0a9ee4828_chunk_0001",
+    "parent_id": "doc_e0a9ee4828_section_7d1cbf53"
   },
-  "context_prefix": "Document: GDevelop Documentation\nSection: Object Picking > Example",
-  "quality": { "quality_score": 0.84, "flags": [] }
+  "context_prefix": "Document: GDevelop Documentation\nSection: Object Picking > How it works",
+  "quality": { "quality_score": 0.97, "retrieval_score": 1.0, "flags": [] }
 }
 ```
 
@@ -83,8 +85,29 @@ Why it retrieves better:
 
 - one complete concept, whole sentences at both ends,
 - the code block is intact and correctly fenced, tagged with its language,
-- the heading is inside the text, so the chunk explains itself,
+- headings are inside the text, so the chunk explains itself,
+- `semantic_role` lets a retriever filter to knowledge only,
 - neighbour and parent ids let a retriever expand context on demand.
+
+### Keyword sections become metadata, not chunks
+
+`faq.json` and `glossary.csv` contain short labelled entries. Instead of
+producing one useless chunk per term, RAG ChunkForge merges the entries into
+usable chunks and records the labels as searchable metadata:
+
+```bash
+ragforge inspect examples/output/chunks.jsonl --chunk 0   # see retrieval.* fields
+ragforge stats   examples/output/chunks.jsonl             # see the coverage audit
+```
+
+The audit confirms nothing was lost:
+
+```text
+Information-loss audit
+  Destination     Blocks   Words
+  knowledge          ...     ...
+Retention 100.00% (0 unaccounted blocks)
+```
 
 ## What each input demonstrates
 
@@ -99,8 +122,12 @@ Why it retrieves better:
 ## Try different strategies
 
 ```bash
+ragforge stats examples/input/object-picking.md -s semantic     # default
 ragforge stats examples/input/object-picking.md -s structural
 ragforge stats examples/input/object-picking.md -s sentence
 ragforge stats examples/input/object-picking.md -s code
 ragforge stats examples/input/retrieval-notes.txt -s auto --chunk-size 200
 ```
+
+Compare the `Chunks by semantic role` and `Retrieval terms harvested` tables
+between `semantic` and the others to see the classification at work.

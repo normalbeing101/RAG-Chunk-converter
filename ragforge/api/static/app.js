@@ -125,6 +125,8 @@ function bindFilters() {
   };
   $("search").addEventListener("input", apply);
   $("filter-type").addEventListener("change", filterChunks);
+  $("filter-role").addEventListener("change", filterChunks);
+  $("filter-knowledge").addEventListener("change", filterChunks);
   $("filter-flagged").addEventListener("change", filterChunks);
 }
 
@@ -154,6 +156,7 @@ function options() {
     clean: $("clean").checked,
     deduplicate: $("dedup").checked,
     context_prefix: $("prefix").checked,
+    separate_retrieval_metadata: $("separate-meta").checked,
   };
 }
 
@@ -212,6 +215,11 @@ async function loadChunks() {
   const select = $("filter-type");
   select.innerHTML = '<option value="">All types</option>';
   types.forEach((t) => select.add(new Option(t, t)));
+
+  const roles = [...new Set(state.chunks.map((c) => c.metadata.semantic_role))].sort();
+  const roleSelect = $("filter-role");
+  roleSelect.innerHTML = '<option value="">All roles</option>';
+  roles.forEach((r) => roleSelect.add(new Option(r, r)));
   filterChunks();
 }
 
@@ -228,20 +236,31 @@ function renderStatistics() {
   set("s-documents", fmt(s.documents));
   set("s-tokens", fmt(s.original_tokens));
   set("s-chunks", fmt(s.total_chunks));
+  set("s-knowledge", fmt(s.knowledge_chunks));
   set("s-avg", Math.round(s.average_size || 0));
-  set("s-median", Math.round(s.median_size || 0));
   set("s-dupes", fmt(s.duplicates));
   set("s-warnings", fmt(s.warnings));
   set("s-quality", (s.average_quality || 0).toFixed(2));
+  set("s-retrieval", (s.average_retrieval_score || 0).toFixed(2));
+  const coverage = s.coverage || {};
+  const retention = coverage.retention;
+  const cell = $("s-retention");
+  cell.textContent = retention === undefined ? "-" : `${(retention * 100).toFixed(1)}%`;
+  cell.parentElement.classList.toggle("warn", (coverage.dropped_blocks || 0) > 0);
 }
 
 function filterChunks() {
   const needle = $("search").value.trim().toLowerCase();
   const type = $("filter-type").value;
+  const role = $("filter-role").value;
+  const knowledgeOnly = $("filter-knowledge").checked;
   const flagged = $("filter-flagged").checked;
+  const AUXILIARY = new Set(["document_meta", "navigation", "retrieval_terms"]);
   state.filtered = state.chunks.filter((c) => {
     if (needle && !c.content.toLowerCase().includes(needle)) return false;
     if (type && c.metadata.content_type !== type) return false;
+    if (role && c.metadata.semantic_role !== role) return false;
+    if (knowledgeOnly && AUXILIARY.has(c.metadata.semantic_role)) return false;
     if (flagged && !(c.quality && c.quality.flags.length)) return false;
     return true;
   });
@@ -264,7 +283,7 @@ function renderChunkList() {
     item.dataset.id = chunk.id;
     item.innerHTML = `
       <div class="head">
-        <span>#${chunk.metadata.chunk_index} &middot; ${escapeHtml(chunk.metadata.content_type)}</span>
+        <span>#${chunk.metadata.chunk_index} &middot; ${escapeHtml(chunk.metadata.semantic_role)} &middot; ${escapeHtml(chunk.metadata.content_type)}</span>
         <span>${chunk.metadata.size} ${escapeHtml(chunk.metadata.unit)} &middot; Q ${
       chunk.quality ? chunk.quality.quality_score.toFixed(2) : "-"
     }</span>
@@ -294,6 +313,7 @@ function selectChunk(id) {
     ["heading path", m.heading_path.join(" > ") || "-"],
     ["section", m.section || "-"],
     ["parent section", m.parent_section || "-"],
+    ["semantic role", m.semantic_role],
     ["content type", m.content_type + (m.language ? ` / ${m.language}` : "")],
     ["index", `${m.chunk_index + 1} / ${m.total_chunks}`],
     ["size", `${m.size} ${m.unit}`],
@@ -311,8 +331,16 @@ function selectChunk(id) {
       "quality",
       `${chunk.quality.quality_score.toFixed(2)} (len ${chunk.quality.length_score.toFixed(2)}, ` +
         `coh ${chunk.quality.coherence_score.toFixed(2)}, ctx ${chunk.quality.context_score.toFixed(2)}, ` +
-        `info ${chunk.quality.information_score.toFixed(2)})`,
+        `info ${chunk.quality.information_score.toFixed(2)}, ` +
+        `retrieval ${(chunk.quality.retrieval_score ?? 0).toFixed(2)})`,
     ]);
+  }
+  const retrieval = chunk.retrieval || {};
+  for (const field of ["tags", "keywords", "aliases", "entities", "related_concepts", "questions"]) {
+    const values = retrieval[field];
+    if (values && values.length) {
+      rows.push([`${field} (${values.length})`, values.slice(0, 8).join(", ")]);
+    }
   }
 
   const badges = flags.length
@@ -390,8 +418,11 @@ function renderCharts() {
   bars("histogram", histogram);
   bars("by-document", entries(s.chunks_by_document));
   bars("by-type", entries(s.chunks_by_content_type));
+  bars("by-role", entries(s.chunks_by_role));
+  bars("by-term", entries(s.retrieval_terms));
   bars("by-section", entries(s.chunks_by_section, 20));
   bars("by-flag", entries(s.flag_counts));
+  bars("by-coverage", entries((s.coverage || {}).words_by_destination));
 }
 
 function entries(object, limit = 12) {

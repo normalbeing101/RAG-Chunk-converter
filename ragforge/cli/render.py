@@ -101,15 +101,29 @@ def print_statistics(stats: Statistics) -> None:
         ("Original characters", f"{stats.original_characters:,}"),
         ("Original tokens", f"{stats.original_tokens:,}"),
         ("Generated chunks", f"{stats.total_chunks:,}"),
+        ("  knowledge", f"{stats.knowledge_chunks:,}"),
+        ("  metadata / nav", f"{stats.metadata_chunks:,}"),
         ("Average size", f"{stats.average_size:,.0f} {stats.unit}"),
         ("Median size", f"{stats.median_size:,.0f} {stats.unit}"),
         ("Min / Max size", f"{stats.min_size:,} / {stats.max_size:,}"),
         ("P95 size", f"{stats.p95_size:,.0f}"),
         ("Average quality", f"{stats.average_quality:.2f}"),
+        ("Retrieval usefulness", f"{stats.average_retrieval_score:.2f}"),
+        ("Keyword-heavy chunks", f"{stats.keyword_heavy_chunks:,}"),
+        ("Heading-only chunks", f"{stats.heading_only_chunks:,}"),
         ("Duplicates", f"{stats.duplicates:,}"),
         ("Warnings", f"{stats.warnings:,}"),
         ("Elapsed", f"{stats.elapsed_seconds:.2f}s"),
     ]
+    if stats.coverage:
+        retention = stats.coverage.get("retention", 1.0)
+        dropped = stats.coverage.get("dropped_blocks", 0)
+        style = "green" if dropped == 0 else "yellow"
+        rows.append(("Source retention", f"[{style}]{retention:.2%}[/{style}]"))
+        rows.append(("Unaccounted blocks", f"[{style}]{dropped:,}[/{style}]"))
+    if stats.retrieval_terms:
+        total = sum(stats.retrieval_terms.values())
+        rows.append(("Retrieval terms", f"{total:,} across {len(stats.retrieval_terms)} fields"))
     for label, value in rows:
         table.add_row(label, str(value))
     console.print(table)
@@ -151,6 +165,7 @@ def print_chunk_table(chunks: list[Chunk], *, limit: int = 20) -> None:
     table.add_column("#", justify="right", style="dim")
     table.add_column("ID", style="cyan", overflow="fold")
     table.add_column("Section", overflow="fold")
+    table.add_column("Role")
     table.add_column("Type")
     table.add_column("Size", justify="right")
     table.add_column("Q", justify="right")
@@ -160,16 +175,19 @@ def print_chunk_table(chunks: list[Chunk], *, limit: int = 20) -> None:
         meta = chunk.metadata
         quality = f"{chunk.quality.quality_score:.2f}" if chunk.quality else "-"
         style = ""
-        if chunk.quality and chunk.quality.flags:
+        if not chunk.is_knowledge:
+            style = "dim"
+        elif chunk.quality and chunk.quality.flags:
             style = "yellow"
         table.add_row(
             str(meta.chunk_index),
             chunk.id,
-            truncate(" > ".join(meta.heading_path) or "-", 34),
+            truncate(" > ".join(meta.heading_path) or "-", 30),
+            meta.semantic_role,
             meta.content_type,
             str(meta.size),
             quality,
-            truncate(chunk.content, 60),
+            truncate(chunk.content, 52),
             style=style,
         )
     console.print(table)
@@ -186,6 +204,7 @@ def print_chunk_detail(chunk: Chunk) -> None:
     header.add_row("Document", f"{meta.title} ({meta.document_id})")
     header.add_row("Source", meta.source or "-")
     header.add_row("Heading path", " > ".join(meta.heading_path) or "-")
+    header.add_row("Role", meta.semantic_role)
     header.add_row("Type", meta.content_type + (f" / {meta.language}" if meta.language else ""))
     header.add_row("Index", f"{meta.chunk_index + 1} / {meta.total_chunks}")
     header.add_row(
@@ -198,9 +217,19 @@ def print_chunk_detail(chunk: Chunk) -> None:
         header.add_row(
             "Quality",
             f"{chunk.quality.quality_score:.2f} "
-            f"(len {chunk.quality.length_score:.2f}, coh {chunk.quality.coherence_score:.2f}, "
-            f"ctx {chunk.quality.context_score:.2f}) flags: {flags}",
+            f"(retrieval {chunk.quality.retrieval_score:.2f}, "
+            f"info {chunk.quality.information_score:.2f}, "
+            f"coh {chunk.quality.coherence_score:.2f}, "
+            f"ctx {chunk.quality.context_score:.2f}, "
+            f"len {chunk.quality.length_score:.2f}) flags: {flags}",
         )
+    if not chunk.retrieval.is_empty():
+        for name in ("tags", "keywords", "aliases", "entities", "related_concepts", "questions"):
+            values = getattr(chunk.retrieval, name)
+            if values:
+                header.add_row(
+                    f"  {name}", f"{len(values)} terms: {truncate(', '.join(values[:6]), 70)}"
+                )
     if meta.duplicate_of:
         header.add_row("Duplicate of", f"{meta.duplicate_of} ({meta.similarity})")
     console.print(Panel(header, title=f"[bold]{chunk.id}", border_style="blue"))
@@ -229,6 +258,37 @@ def print_validation(report: ValidationReport) -> None:
     console.print(
         f"\n[bold]{len(report.errors)} error(s), {len(report.warnings)} warning(s)"
         f" across {report.checked:,} chunks.[/bold]"
+    )
+
+
+def print_coverage(coverage: dict) -> None:
+    """Show where every piece of source text ended up."""
+    if not coverage:
+        return
+    dropped = coverage.get("dropped_blocks", 0)
+    retention = coverage.get("retention", 1.0)
+    colour = "green" if dropped == 0 else "red"
+
+    table = Table(title="Information-loss audit", box=None, padding=(0, 2))
+    table.add_column("Destination", style="cyan")
+    table.add_column("Blocks", justify="right")
+    table.add_column("Words", justify="right")
+    blocks = coverage.get("blocks_by_destination", {})
+    words = coverage.get("words_by_destination", {})
+    for destination in sorted(set(blocks) | set(words)):
+        style = "red" if destination == "dropped" else ""
+        table.add_row(
+            destination,
+            f"{blocks.get(destination, 0):,}",
+            f"{words.get(destination, 0):,}",
+            style=style,
+        )
+    console.print(table)
+    console.print(
+        f"[{colour}]Retention {retention:.2%}[/{colour}] "
+        f"({coverage.get('source_words', 0):,} source words, "
+        f"{dropped:,} unaccounted block(s), "
+        f"{coverage.get('duplicated_chars', 0):,} chars duplicated by overlap)"
     )
 
 

@@ -20,6 +20,8 @@ _COLUMNS = [
     "source",
     "chunk_index",
     "content_type",
+    "semantic_role",
+    "keywords",
 ]
 
 

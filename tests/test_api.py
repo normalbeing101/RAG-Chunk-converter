@@ -236,6 +236,61 @@ def test_export_invalid_format(client, job):
     assert response.status_code == 400
 
 
+def test_api_defaults_match_the_library_defaults(client, markdown_doc):
+    """The API used to hardcode the recursive strategy and skip classification,
+    so identical input produced different chunks through the API and the CLI."""
+    from ragforge.api.schemas import ProcessOptions
+    from ragforge.models.config import ForgeConfig, Strategy
+
+    defaults = ProcessOptions()
+    assert defaults.strategy is Strategy.SEMANTIC
+    assert defaults.separate_retrieval_metadata is True
+
+    config = defaults.to_config()
+    reference = ForgeConfig()
+    assert config.chunking.strategy is reference.chunking.strategy
+    assert config.semantics.enabled is reference.semantics.enabled
+
+
+def test_chunks_expose_role_and_retrieval_metadata(client, markdown_doc):
+    keywords = "; ".join(f"search term {i}" for i in range(60))
+    text = f"# Doc\n\n## Keywords\n\n{keywords}\n\n## Body\n\n{markdown_doc}"
+    response = client.post("/process/text", json={"text": text, "title": "T"})
+    assert response.status_code == 200, response.text
+    job_id = response.json()["job_id"]
+
+    page = client.get(f"/jobs/{job_id}/chunks").json()
+    assert all("semantic_role" in c["metadata"] for c in page["chunks"])
+    assert any(c.get("retrieval", {}).get("keywords") for c in page["chunks"])
+    # The dump itself never becomes chunk text.
+    assert all("search term 30" not in c["content"] for c in page["chunks"])
+
+
+def test_knowledge_only_and_role_filters(client, job):
+    job_id = job["job_id"]
+    everything = client.get(f"/jobs/{job_id}/chunks").json()["total"]
+    knowledge = client.get(f"/jobs/{job_id}/chunks?knowledge_only=true").json()
+    assert knowledge["total"] <= everything
+    assert all(c["metadata"]["semantic_role"] != "document_meta" for c in knowledge["chunks"])
+
+    filtered = client.get(f"/jobs/{job_id}/chunks?role=knowledge").json()
+    assert all(c["metadata"]["semantic_role"] == "knowledge" for c in filtered["chunks"])
+
+
+def test_validate_reports_information_loss(client, job):
+    payload = client.get(f"/jobs/{job['job_id']}/validate").json()
+    assert "coverage" in payload
+    assert payload["coverage"]["dropped_blocks"] == 0
+    assert payload["coverage"]["retention"] >= 0.99
+
+
+def test_statistics_expose_roles_and_terms(client, job):
+    payload = client.get(f"/jobs/{job['job_id']}/statistics").json()
+    assert payload["chunks_by_role"]
+    assert payload["knowledge_chunks"] >= 1
+    assert "coverage" in payload
+
+
 def test_job_store_is_bounded():
     from ragforge.api.jobs import JobStore
 

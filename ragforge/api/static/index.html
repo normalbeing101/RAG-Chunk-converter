@@ -47,8 +47,9 @@
     <h2>2. Chunking</h2>
     <label>Strategy
       <select id="strategy">
-        <option value="recursive" selected>recursive</option>
+        <option value="semantic" selected>semantic</option>
         <option value="structural">structural</option>
+        <option value="recursive">recursive</option>
         <option value="sentence">sentence</option>
         <option value="code">code</option>
         <option value="auto">auto</option>
@@ -81,6 +82,9 @@
       <label class="check"><input type="checkbox" id="clean" checked /> Clean text</label>
       <label class="check"><input type="checkbox" id="dedup" checked /> Deduplicate</label>
       <label class="check"><input type="checkbox" id="prefix" checked /> Context prefix</label>
+      <label class="check" title="Keyword/tag/alias sections become metadata fields instead of chunks">
+        <input type="checkbox" id="separate-meta" checked /> Separate retrieval metadata
+      </label>
     </fieldset>
 
     <button id="run" class="primary">Process document</button>
@@ -104,11 +108,13 @@
         <div class="stat"><span id="s-documents">0</span><label>Documents</label></div>
         <div class="stat"><span id="s-tokens">0</span><label>Original tokens</label></div>
         <div class="stat"><span id="s-chunks">0</span><label>Chunks</label></div>
+        <div class="stat"><span id="s-knowledge">0</span><label>Knowledge</label></div>
         <div class="stat"><span id="s-avg">0</span><label>Average size</label></div>
-        <div class="stat"><span id="s-median">0</span><label>Median size</label></div>
         <div class="stat"><span id="s-dupes">0</span><label>Duplicates</label></div>
         <div class="stat warn"><span id="s-warnings">0</span><label>Warnings</label></div>
         <div class="stat"><span id="s-quality">0</span><label>Avg quality</label></div>
+        <div class="stat"><span id="s-retrieval">0</span><label>Retrieval score</label></div>
+        <div class="stat"><span id="s-retention">-</span><label>Source retention</label></div>
       </div>
 
       <nav class="tabs main-tabs" role="tablist">
@@ -123,6 +129,8 @@
         <div class="panel toolbar">
           <input type="search" id="search" placeholder="Search chunk content..." />
           <select id="filter-type"><option value="">All types</option></select>
+          <select id="filter-role"><option value="">All roles</option></select>
+          <label class="check"><input type="checkbox" id="filter-knowledge" /> Knowledge only</label>
           <label class="check"><input type="checkbox" id="filter-flagged" /> Flagged only</label>
           <span class="muted" id="chunk-count"></span>
         </div>
@@ -155,8 +163,17 @@
           <div class="panel"><h3>Chunks by document</h3><div id="by-document" class="chart"></div></div>
           <div class="panel"><h3>Chunks by content type</h3><div id="by-type" class="chart"></div></div>
         </div>
+        <div class="grid-2">
+          <div class="panel"><h3>Chunks by semantic role</h3><div id="by-role" class="chart"></div></div>
+          <div class="panel"><h3>Retrieval terms harvested</h3><div id="by-term" class="chart"></div></div>
+        </div>
         <div class="panel"><h3>Chunks by section</h3><div id="by-section" class="chart"></div></div>
         <div class="panel"><h3>Quality flags</h3><div id="by-flag" class="chart"></div></div>
+        <div class="panel">
+          <h3>Information-loss audit</h3>
+          <p class="muted legend">Where every source block ended up. <code>dropped</code> must be zero.</p>
+          <div id="by-coverage" class="chart"></div>
+        </div>
       </div>
 
       <!-- export -->

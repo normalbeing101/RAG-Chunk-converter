@@ -16,7 +16,7 @@ class ProcessOptions(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    strategy: Strategy = Strategy.RECURSIVE
+    strategy: Strategy = Strategy.SEMANTIC
     target_size: int = Field(default=500, gt=0)
     min_size: int = Field(default=100, ge=0)
     max_size: int = Field(default=800, gt=0)
@@ -26,6 +26,8 @@ class ProcessOptions(BaseModel):
     deduplicate: bool = True
     context_prefix: bool = True
     quality: bool = True
+    separate_retrieval_metadata: bool = True
+    """Route keyword/tag/alias sections into structured metadata fields."""
 
     def to_config(self, base: ForgeConfig | None = None) -> ForgeConfig:
         config = (base or ForgeConfig()).model_copy(deep=True)
@@ -44,6 +46,8 @@ class ProcessOptions(BaseModel):
         config.deduplication.enabled = self.deduplicate
         config.context.include_context_prefix = self.context_prefix
         config.quality.enabled = self.quality
+        config.semantics.enabled = self.separate_retrieval_metadata
+        config.semantics.separate_retrieval_metadata = self.separate_retrieval_metadata
         return config
 
 
